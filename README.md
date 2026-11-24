@@ -56,7 +56,6 @@ eventos. Ele também envia uma nova configuração para o tópico do semáforo.
 - Abra `dashboard/index.html` direto no navegador; não precisa de servidor.
 - `index.html?demo`: modo demonstração com dados simulados, sem ESP32.
 - `index.html?topico=Ifpe/Semaforo/Semaforo2`: monitora outro semáforo.
-- `index.html?tema=claro` ou `?tema=escuro`: força o tema (também há um botão no canto superior direito).
 
 ## Componentes e pinos
 
