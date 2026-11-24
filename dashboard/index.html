@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Semáforo Inteligente · Dashboard</title>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series: #2a78d6;
+    --series-wash: rgba(42,120,214,0.10);
+    --good: #0ca30c;
+    --warn: #fab219;
+    --crit: #d03b3b;
+    --off: #e1e0d9;
+    --good-text: #006300;
+    --housing: #2c2c2a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #f0efec;
+      --ink-2: #c3c2b7;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255,255,255,0.10);
+      --series: #3987e5;
+      --series-wash: rgba(57,135,229,0.14);
+      --off: #383835;
+      --good-text: #0ca30c;
+      --housing: #0d0d0d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 20px 48px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-2); margin-top: 2px; }
+  .sub code { font-size: 12.5px; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: 13px; color: var(--ink-2); }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill[data-s="ok"] .dot { background: var(--good); }
+  .pill[data-s="warn"] .dot { background: var(--warn); }
+  .pill[data-s="bad"] .dot { background: var(--crit); }
+
+  .grid { display: grid; gap: 16px; }
+  .top { grid-template-columns: minmax(300px, 380px) 1fr; }
+  .bottom { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 860px) { .top, .bottom { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; min-width: 0; }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: var(--ink); }
+  .card h2 .hint { font-weight: 400; color: var(--muted); margin-left: 6px; }
+
+  .phase { display: flex; gap: 22px; align-items: center; }
+  .light { background: var(--housing); border-radius: 16px; padding: 10px; display: grid; gap: 8px; flex: none; }
+  .lamp { width: 46px; height: 46px; border-radius: 50%; background: #3a3a37; opacity: .35; transition: opacity .15s, box-shadow .15s; }
+  .lamp.r { background: var(--crit); } .lamp.y { background: var(--warn); } .lamp.g { background: var(--good); }
+  .lamp.on { opacity: 1; box-shadow: 0 0 18px 2px currentColor; }
+  .lamp.r.on { color: rgba(208,59,59,.55); } .lamp.y.on { color: rgba(250,178,25,.55); } .lamp.g.on { color: rgba(12,163,12,.55); }
+  .phase-info { min-width: 0; flex: 1; }
+  .phase-name { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
+  .hero { font-size: 52px; font-weight: 650; line-height: 1.05; letter-spacing: -0.02em; margin: 2px 0 2px; }
+  .hero small { font-size: 20px; font-weight: 500; color: var(--ink-2); margin-left: 2px; }
+  .of { color: var(--muted); font-size: 13px; }
+  .bar { height: 6px; background: var(--grid); border-radius: 3px; margin: 12px 0 14px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--ink-2); border-radius: 3px; }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border); color: var(--ink-2); }
+  .badge.strong { color: var(--ink); font-weight: 600; }
+
+  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 1px; background: var(--border); border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
+  @media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  .tile { background: var(--surface); padding: 16px 18px; min-width: 0; }
+  .tile .k { font-size: 12.5px; color: var(--ink-2); }
+  .tile .v { font-size: 28px; font-weight: 650; margin-top: 4px; letter-spacing: -0.01em; white-space: nowrap; }
+  .tile .v small { font-size: 14px; font-weight: 500; color: var(--ink-2); margin-left: 3px; }
+  .tile .n { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .yes { color: var(--good-text); }
+
+  .chart-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .chart-head h2 { margin: 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 12.5px; padding: 4px 10px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+  .chart-wrap { position: relative; }
+  svg.chart { display: block; width: 100%; overflow: visible; }
+  .chart text { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .legend i.line { height: 2px; width: 14px; border-radius: 1px; }
+  .legend i.dash { height: 0; width: 14px; border-top: 2px dashed var(--muted); border-radius: 0; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0,0,0,.12); border-radius: 8px; padding: 8px 10px; font-size: 12px; min-width: 150px; display: none; z-index: 2; }
+  .tip b { font-weight: 600; }
+  .tip .row { display: flex; justify-content: space-between; gap: 12px; color: var(--ink-2); }
+  .tip .row span:last-child { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+
+  dl.cfg { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 16px; margin: 0 0 16px; font-variant-numeric: tabular-nums; }
+  dl.cfg .h { color: var(--muted); font-size: 12px; }
+  dl.cfg dt { color: var(--ink-2); }
+  dl.cfg dd { margin: 0; text-align: right; }
+  form { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px 14px; border-top: 1px solid var(--grid); padding-top: 14px; }
+  form .full { grid-column: 1 / -1; }
+  label { display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
+  input, select { font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--axis); background: var(--page); color: var(--ink); width: 100%; }
+  button.primary { font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 8px; border: 0; background: var(--ink); color: var(--surface); cursor: pointer; justify-self: start; }
+  button.primary:disabled { opacity: .45; cursor: not-allowed; }
+  .formnote { font-size: 12px; color: var(--muted); align-self: center; }
+
+  .log { max-height: 420px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 0 8px 6px 0; position: sticky; top: 0; background: var(--surface); }
+  td { padding: 6px 8px 6px 0; border-top: 1px solid var(--grid); vertical-align: top; }
+  td.t { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; width: 1%; }
+  .tag { display: inline-flex; align-items: center; gap: 5px; }
+  .tag i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); }
+  footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Semáforo Inteligente</h1>
+      <div class="sub">Monitoramento em tempo real · tópico <code id="topicLabel"></code></div>
+    </div>
+    <div class="pills">
+      <span class="pill" id="pBroker" data-s=""><span class="dot"></span><span>Broker: conectando…</span></span>
+      <span class="pill" id="pDevice" data-s=""><span class="dot"></span><span>ESP32: aguardando</span></span>
+      <span class="pill" id="pLast"><span>Última leitura: —</span></span>
+    </div>
+  </header>
+
+  <div class="grid top">
+    <section class="card" aria-labelledby="hPhase">
+      <h2 id="hPhase">Fase atual</h2>
+      <div class="phase">
+        <div class="light" aria-hidden="true">
+          <div class="lamp r" id="lampR"></div>
+          <div class="lamp y" id="lampY"></div>
+          <div class="lamp g" id="lampG"></div>
+        </div>
+        <div class="phase-info">
+          <div class="phase-name" id="phaseName">Sem dados</div>
+          <div class="hero" id="countdown">—</div>
+          <div class="of" id="phaseOf">&nbsp;</div>
+          <div class="bar"><i id="phaseBar"></i></div>
+          <div class="badges" id="badges"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tiles" aria-label="Indicadores">
+      <div class="tile"><div class="k">Distância medida</div><div class="v" id="tDist">—</div><div class="n">presença abaixo de 50 cm</div></div>
+      <div class="tile"><div class="k">Presença</div><div class="v" id="tPres">—</div><div class="n" id="tPresN">&nbsp;</div></div>
+      <div class="tile"><div class="k">Detecções</div><div class="v" id="tDet">—</div><div class="n">desde que o ESP32 ligou</div></div>
+      <div class="tile"><div class="k">Ciclos completos</div><div class="v" id="tCyc">—</div><div class="n">verde → amarelo → vermelho</div></div>
+      <div class="tile"><div class="k">Sinal Wi-Fi</div><div class="v" id="tRssi">—</div><div class="n" id="tRssiN">&nbsp;</div></div>
+      <div class="tile"><div class="k">Tempo ligado</div><div class="v" id="tUp">—</div><div class="n">uptime do ESP32</div></div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:16px" aria-labelledby="hChart">
+    <div class="chart-head">
+      <h2 id="hChart">Distância do sensor e fases do semáforo</h2>
+      <div class="seg" role="group" aria-label="Janela de tempo">
+        <button type="button" data-w="60" aria-pressed="false">1 min</button>
+        <button type="button" data-w="300" aria-pressed="true">5 min</button>
+        <button type="button" data-w="900" aria-pressed="false">15 min</button>
+      </div>
+    </div>
+    <div class="chart-wrap" id="chartWrap">
+      <svg class="chart" id="chart" role="img" aria-label="Distância medida pelo HC-SR04 ao longo do tempo, com a faixa de fases do semáforo abaixo"></svg>
+      <div class="tip" id="tip"></div>
+      <div class="empty" id="empty">Aguardando telemetria do ESP32…</div>
+    </div>
+    <div class="legend">
+      <span><i class="line" style="background:var(--series)"></i>Distância (cm)</span>
+      <span><i class="dash"></i>Limite de presença (50 cm)</span>
+      <span><i style="background:var(--good)"></i>Verde</span>
+      <span><i style="background:var(--warn)"></i>Amarelo</span>
+      <span><i style="background:var(--crit)"></i>Vermelho</span>
+      <span><i style="background:var(--axis)"></i>Manutenção</span>
+    </div>
+  </section>
+
+  <div class="grid bottom" style="margin-top:16px">
+    <section class="card" aria-labelledby="hCfg">
+      <h2 id="hCfg">Configuração<span class="hint">em uso no ESP32</span></h2>
+      <dl class="cfg">
+        <span class="h"></span><span class="h">Padrão</span><span class="h">Pico</span>
+        <dt>Verde (carros)</dt><dd id="cVp">—</dd><dd id="cVk">—</dd>
+        <dt>Vermelho (pedestres)</dt><dd id="cRp">—</dd><dd id="cRk">—</dd>
+        <dt>Horário de pico</dt><dd id="cPk" style="grid-column: span 2">—</dd>
+      </dl>
+      <form id="cfgForm">
+        <label>Verde padrão (s)<input type="number" min="1" max="300" name="vp" value="25" required></label>
+        <label>Vermelho padrão (s)<input type="number" min="1" max="300" name="rp" value="25" required></label>
+        <label>Verde no pico (s)<input type="number" min="1" max="300" name="vk" value="35" required></label>
+        <label>Vermelho no pico (s)<input type="number" min="1" max="300" name="rk" value="15" required></label>
+        <label>Início do pico<input type="time" name="pi" value="07:00" required></label>
+        <label>Fim do pico<input type="time" name="pf" value="09:00" required></label>
+        <label class="full">Status operacional
+          <select name="st"><option value="ativo">Ativo</option><option value="manutencao">Manutenção (amarelo piscando)</option></select>
+        </label>
+        <button class="primary" type="submit" id="sendBtn">Enviar configuração</button>
+        <span class="formnote" id="formNote">Publica no tópico de configuração.</span>
+      </form>
+    </section>
+
+    <section class="card" aria-labelledby="hLog">
+      <h2 id="hLog">Eventos</h2>
+      <div class="log">
+        <table>
+          <thead><tr><th>Hora</th><th>Evento</th></tr></thead>
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <footer id="footer"></footer>
+</main>
+
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const DEMO = params.has('demo');
+  const BROKER = params.get('broker') || 'wss://broker.hivemq.com:8884/mqtt';
+  const BASE = params.get('topico') || 'Ifpe/Semaforo/Semaforo1';
+  const T_TELE = BASE + '/telemetria';
+  const T_ONLINE = BASE + '/online';
+  const STALE_MS = 5000;
+  const KEEP_S = 900;
+
+  const $ = id => document.getElementById(id);
+  const fmtTime = t => new Date(t).toLocaleTimeString('pt-BR');
+  const FASE = {
+    VERDE: { label: 'Verde', color: 'var(--good)' },
+    AMARELO: { label: 'Amarelo', color: 'var(--warn)' },
+    VERMELHO: { label: 'Vermelho', color: 'var(--crit)' },
+    MANUTENCAO: { label: 'Manutenção', color: 'var(--axis)' },
+  };
+
+  $('topicLabel').textContent = BASE;
+  $('footer').textContent = DEMO
+    ? 'Modo demonstração: dados simulados no navegador, sem conexão MQTT.'
+    : `Broker ${BROKER} · telemetria em ${T_TELE} · status em ${T_ONLINE}`;
+
+  let last = null, lastAt = 0, deviceOnline = null, brokerOk = false;
+  let samples = [];
+  let windowS = 300;
+  let client = null;
+
+  function setPill(el, state, text) { el.dataset.s = state; el.lastElementChild.textContent = text; }
+
+  function log(text, color) {
+    const tr = document.createElement('tr');
+    const tag = color ? `<span class="tag"><i style="background:${color}"></i>${text}</span>` : text;
+    tr.innerHTML = `<td class="t">${fmtTime(Date.now())}</td><td>${tag}</td>`;
+    const body = $('logBody');
+    body.prepend(tr);
+    while (body.children.length > 60) body.lastElementChild.remove();
+  }
+
+  function faseKey(m) { return m.manutencao ? 'MANUTENCAO' : m.estado; }
+
+  function onTelemetry(m) {
+    const now = Date.now();
+    if (last) {
+      if (faseKey(m) !== faseKey(last)) log(`Fase: ${FASE[faseKey(m)].label}`, FASE[faseKey(m)].color);
+      if (m.presenca !== last.presenca) log(m.presenca ? `Presença detectada (${m.distanciaCm} cm)` : 'Presença encerrada');
+      if (m.pico !== last.pico) log(m.pico ? 'Entrou no horário de pico' : 'Saiu do horário de pico');
+      if (JSON.stringify(m.config) !== JSON.stringify(last.config)) log('Nova configuração aplicada no ESP32');
+      if (m.uptime < last.uptime) log('ESP32 reiniciou');
+    } else {
+      log('Primeira telemetria recebida');
+      fillForm(m);
+    }
+    last = m; lastAt = now;
+    const d = m.distanciaCm >= 999 || m.distanciaCm == null ? null : m.distanciaCm;
+    samples.push({ t: now, d, fase: faseKey(m), presenca: m.presenca });
+    const cut = now - KEEP_S * 1000;
+    while (samples.length && samples[0].t < cut) samples.shift();
+    renderStatic();
+    drawChart();
+  }
+
+  function onOnline(v) {
+    const on = v === '1';
+    if (deviceOnline !== null && on !== deviceOnline) log(on ? 'ESP32 conectou ao broker' : 'ESP32 desconectou (Last Will)');
+    deviceOnline = on;
+    updatePills();
+  }
+
+  function updatePills() {
+    if (DEMO) { setPill($('pBroker'), 'ok', 'Demonstração'); }
+    else setPill($('pBroker'), brokerOk ? 'ok' : 'bad', brokerOk ? 'Broker: conectado' : 'Broker: desconectado');
+    const stale = !lastAt || Date.now() - lastAt > STALE_MS;
+    if (deviceOnline === false) setPill($('pDevice'), 'bad', 'ESP32: offline');
+    else if (stale && lastAt) setPill($('pDevice'), 'warn', 'ESP32: sem resposta');
+    else if (!lastAt) setPill($('pDevice'), '', 'ESP32: aguardando');
+    else setPill($('pDevice'), 'ok', 'ESP32: online');
+    $('pLast').lastElementChild.textContent = lastAt ? `Última leitura: ${fmtTime(lastAt)}` : 'Última leitura: —';
+  }
+
+  function fmtUptime(s) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    return h ? `${h}h ${String(m).padStart(2, '0')}min` : m ? `${m}min ${String(x).padStart(2, '0')}s` : `${x}s`;
+  }
+
+  function renderStatic() {
+    const m = last;
+    const d = m.distanciaCm >= 999 ? null : m.distanciaCm;
+    $('tDist').innerHTML = d == null ? 'sem eco' : `${d}<small>cm</small>`;
+    $('tPres').innerHTML = m.presenca ? '<span class="yes">Sim</span>' : 'Não';
+    $('tPresN').textContent = m.presenca ? 'vermelho reduzido pela metade' : 'tempos normais';
+    $('tDet').textContent = m.deteccoes;
+    $('tCyc').textContent = m.ciclos;
+    $('tRssi').innerHTML = m.rssi != null ? `${m.rssi}<small>dBm</small>` : '—';
+    $('tRssiN').textContent = m.rssi == null ? '' : m.rssi >= -60 ? 'bom' : m.rssi >= -75 ? 'regular' : 'fraco';
+    $('tUp').textContent = fmtUptime(m.uptime);
+
+    const c = m.config || {};
+    $('cVp').textContent = `${c.verdePadrao} s`; $('cVk').textContent = `${c.verdePico} s`;
+    $('cRp').textContent = `${c.vermelhoPadrao} s`; $('cRk').textContent = `${c.vermelhoPico} s`;
+    $('cPk').textContent = `${c.picoInicio} às ${c.picoFim}`;
+
+    const b = [];
+    if (m.manutencao) b.push('<span class="badge strong">Manutenção</span>');
+    else b.push(m.pico ? '<span class="badge strong">Horário de pico</span>' : '<span class="badge">Fora do pico</span>');
+    if (!m.manutencao && m.presenca && m.estado === 'VERMELHO') b.push('<span class="badge strong">Vermelho encurtado por presença</span>');
+    $('badges').innerHTML = b.join('');
+  }
+
+  function tick() {
+    updatePills();
+    if (!last) return;
+    const stale = Date.now() - lastAt > STALE_MS;
+    const m = last;
+    const blink = Math.floor(Date.now() / 500) % 2 === 0;
+    $('lampR').classList.toggle('on', !stale && !m.manutencao && m.estado === 'VERMELHO');
+    $('lampY').classList.toggle('on', !stale && (m.manutencao ? blink : m.estado === 'AMARELO'));
+    $('lampG').classList.toggle('on', !stale && !m.manutencao && m.estado === 'VERDE');
+    const f = FASE[faseKey(m)];
+    $('phaseName').innerHTML = `<span class="tag"><i style="background:${f.color}"></i>${f.label}${stale ? ' · dados desatualizados' : ''}</span>`;
+    if (m.manutencao) {
+      $('countdown').innerHTML = '—';
+      $('phaseOf').textContent = 'Ciclo suspenso, amarelo piscando';
+      $('phaseBar').style.width = '0';
+      return;
+    }
+    const rest = Math.max(0, m.faseRestanteMs - (Date.now() - lastAt));
+    const dur = m.faseDuracaoMs || 1;
+    $('countdown').innerHTML = `${Math.ceil(rest / 1000)}<small>s</small>`;
+    $('phaseOf').textContent = `restantes de ${Math.round(dur / 1000)} s nesta fase`;
+    $('phaseBar').style.width = `${Math.min(100, (1 - rest / dur) * 100)}%`;
+  }
+
+  const svg = $('chart'), tip = $('tip');
+  const NS = 'http://www.w3.org/2000/svg';
+  const H = 250, PAD = { l: 40, r: 12, t: 10, b: 24 }, STRIP = 16, GAP = 14;
+  let geo = null;
+
+  function el(name, attrs, parent) {
+    const e = document.createElementNS(NS, name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    (parent || svg).appendChild(e);
+    return e;
+  }
+
+  function drawChart() {
+    const W = $('chartWrap').clientWidth;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('height', H);
+    svg.innerHTML = '';
+    $('empty').style.display = samples.length ? 'none' : 'flex';
+
+    const now = Date.now(), t0 = now - windowS * 1000;
+    const vis = samples.filter(s => s.t >= t0 - 2000);
+    const plotB = H - PAD.b - STRIP - GAP;
+    const x = t => PAD.l + (t - t0) / (now - t0) * (W - PAD.l - PAD.r);
+    const maxD = Math.max(100, ...vis.map(s => s.d || 0));
+    const yMax = Math.min(400, Math.ceil(maxD / 50) * 50);
+    const y = v => plotB - (Math.min(v, yMax) / yMax) * (plotB - PAD.t);
+    const step = yMax <= 150 ? 25 : yMax <= 300 ? 50 : 100;
+
+    for (let v = 0; v <= yMax; v += step) {
+      el('line', { x1: PAD.l, x2: W - PAD.r, y1: y(v), y2: y(v), stroke: v === 0 ? 'var(--axis)' : 'var(--grid)', 'stroke-width': 1 });
+      el('text', { x: PAD.l - 8, y: y(v) + 4, 'text-anchor': 'end' }).textContent = v;
+    }
+    const tickEvery = windowS <= 60 ? 10 : windowS <= 300 ? 60 : 180;
+    const first = Math.ceil(t0 / 1000 / tickEvery) * tickEvery * 1000;
+    for (let t = first; t <= now; t += tickEvery * 1000) {
+      const lbl = new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: windowS <= 60 ? '2-digit' : undefined });
+      el('text', { x: x(t), y: H - 6, 'text-anchor': 'middle' }).textContent = lbl;
+    }
+
+    el('line', { x1: PAD.l, x2: W - PAD.r, y1: y(50), y2: y(50), stroke: 'var(--muted)', 'stroke-width': 1.5, 'stroke-dasharray': '5 4' });
+
+    const clip = el('clipPath', { id: 'clip' }, el('defs', {}));
+    el('rect', { x: PAD.l, y: 0, width: W - PAD.l - PAD.r, height: H }, clip);
+    const g = el('g', { 'clip-path': 'url(#clip)' });
+
+    let path = '', area = '', runStart = null, prev = null;
+    const closeRun = () => { if (runStart != null) area += `L${x(prev.t)},${plotB}L${runStart},${plotB}Z`; runStart = null; };
+    for (const s of vis) {
+      if (s.d == null || (prev && s.t - prev.t > 4000)) closeRun();
+      if (s.d == null) { prev = null; continue; }
+      if (runStart == null) { path += `M${x(s.t)},${y(s.d)}`; area += `M${x(s.t)},${y(s.d)}`; runStart = x(s.t); }
+      else { path += `L${x(s.t)},${y(s.d)}`; area += `L${x(s.t)},${y(s.d)}`; }
+      prev = s;
+    }
+    closeRun();
+    el('path', { d: area, fill: 'var(--series-wash)', stroke: 'none' }, g);
+    el('path', { d: path, fill: 'none', stroke: 'var(--series)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, g);
+
+    const sy = H - PAD.b - STRIP;
+    let segStart = null;
+    for (let i = 0; i < vis.length; i++) {
+      const s = vis[i], n = vis[i + 1];
+      if (segStart == null) segStart = s;
+      const end = !n || n.fase !== s.fase || n.t - s.t > 4000;
+      if (end) {
+        const endT = n && n.t - s.t <= 4000 ? n.t : s.t + 1000;
+        const x1 = Math.max(PAD.l, x(segStart.t)), x2 = Math.min(W - PAD.r, x(endT));
+        if (x2 - x1 > 0.5) el('rect', { x: x1, y: sy, width: Math.max(1, x2 - x1 - 1), height: STRIP, rx: 3, fill: FASE[s.fase].color });
+        segStart = null;
+      }
+    }
+
+    geo = { x, y, t0, now, W, plotB, sy, vis };
+    const cross = el('line', { y1: PAD.t, y2: sy + STRIP, stroke: 'var(--ink-2)', 'stroke-width': 1, visibility: 'hidden', id: 'cross' });
+    const dot = el('circle', { r: 4.5, fill: 'var(--series)', stroke: 'var(--surface)', 'stroke-width': 2, visibility: 'hidden', id: 'cdot' });
+    el('rect', { x: PAD.l, y: 0, width: W - PAD.l - PAD.r, height: H - PAD.b, fill: 'transparent', id: 'hit' });
+    if (hoverX != null) showTip(hoverX);
+  }
+
+  let hoverX = null;
+  function showTip(px) {
+    if (!geo || !geo.vis.length) return;
+    const t = geo.t0 + (px - PAD.l) / (geo.W - PAD.l - PAD.r) * (geo.now - geo.t0);
+    let best = null;
+    for (const s of geo.vis) if (!best || Math.abs(s.t - t) < Math.abs(best.t - t)) best = s;
+    if (!best || Math.abs(best.t - t) > 5000) { hideTip(); return; }
+    const cx = geo.x(best.t);
+    const cross = $('cross'), dot = $('cdot');
+    cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+    if (best.d != null) { dot.setAttribute('cx', cx); dot.setAttribute('cy', geo.y(best.d)); dot.setAttribute('visibility', 'visible'); }
+    else dot.setAttribute('visibility', 'hidden');
+    const f = FASE[best.fase];
+    tip.innerHTML = `<b>${fmtTime(best.t)}</b>
+      <div class="row"><span>Distância</span><span>${best.d == null ? 'sem eco' : best.d + ' cm'}</span></div>
+      <div class="row"><span>Presença</span><span>${best.presenca ? 'Sim' : 'Não'}</span></div>
+      <div class="row"><span>Fase</span><span class="tag"><i style="background:${f.color}"></i>${f.label}</span></div>`;
+    tip.style.display = 'block';
+    const tw = tip.offsetWidth;
+    tip.style.left = `${cx + 14 + tw > geo.W ? cx - tw - 14 : cx + 14}px`;
+    tip.style.top = `${PAD.t + 6}px`;
+  }
+  function hideTip() {
+    tip.style.display = 'none';
+    const c = $('cross'), d = $('cdot');
+    if (c) c.setAttribute('visibility', 'hidden');
+    if (d) d.setAttribute('visibility', 'hidden');
+  }
+  svg.addEventListener('pointermove', e => { const r = svg.getBoundingClientRect(); hoverX = e.clientX - r.left; showTip(hoverX); });
+  svg.addEventListener('pointerleave', () => { hoverX = null; hideTip(); });
+
+  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+    windowS = +b.dataset.w;
+    document.querySelectorAll('.seg button').forEach(o => o.setAttribute('aria-pressed', o === b));
+    drawChart();
+  }));
+  window.addEventListener('resize', drawChart);
+
+  function fillForm(m) {
+    const c = m.config || {}, f = $('cfgForm').elements;
+    if (c.verdePadrao) f.vp.value = c.verdePadrao;
+    if (c.vermelhoPadrao) f.rp.value = c.vermelhoPadrao;
+    if (c.verdePico) f.vk.value = c.verdePico;
+    if (c.vermelhoPico) f.rk.value = c.vermelhoPico;
+    if (c.picoInicio) f.pi.value = c.picoInicio;
+    if (c.picoFim) f.pf.value = c.picoFim;
+    f.st.value = m.manutencao ? 'manutencao' : 'ativo';
+  }
+
+  $('cfgForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const f = e.target.elements;
+    const payload = {
+      tempoPadrao: { carro: +f.vp.value, pedestre: +f.rp.value },
+      tempoHorarioPico: { carro: +f.vk.value, pedestre: +f.rk.value },
+      horarioPico: { inicio: f.pi.value, fim: f.pf.value },
+      statusOperacional: f.st.value,
+    };
+    if (DEMO) sim.apply(payload);
+    else if (client && brokerOk) client.publish(BASE, JSON.stringify(payload));
+    else { $('formNote').textContent = 'Sem conexão com o broker.'; return; }
+    log('Configuração enviada pelo dashboard');
+    $('formNote').textContent = `Enviada às ${fmtTime(Date.now())}.`;
+  });
+
+  const sim = (() => {
+    const cfg = { vp: 25, rp: 25, vk: 35, rk: 15, pi: '07:00', pf: '09:00', man: false };
+    let estado = 'VERDE', inicio = Date.now(), dist = 180, alvo = 180, ciclos = 0, det = 0, pres = false;
+    const boot = Date.now() - 240000;
+    const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+    const pico = () => { const d = new Date(), a = d.getHours() * 60 + d.getMinutes(), i = toMin(cfg.pi), f = toMin(cfg.pf); return i <= f ? a >= i && a <= f : a >= i || a <= f; };
+    const dur = () => estado === 'VERDE' ? (pico() ? cfg.vk : cfg.vp) * 1000 : estado === 'AMARELO' ? 3000 : ((pico() ? cfg.rk : cfg.rp) * 1000) / (pres ? 2 : 1);
+    function step() {
+      if (Math.random() < 0.04) alvo = Math.random() < 0.45 ? 15 + Math.random() * 30 : 120 + Math.random() * 180;
+      dist += (alvo - dist) * 0.35 + (Math.random() - 0.5) * 6;
+      const d = Math.max(3, Math.round(dist));
+      const novo = d < 50;
+      if (novo && !pres) det++;
+      pres = novo;
+      if (!cfg.man && Date.now() - inicio >= dur()) {
+        estado = estado === 'VERDE' ? 'AMARELO' : estado === 'AMARELO' ? 'VERMELHO' : 'VERDE';
+        if (estado === 'VERDE') ciclos++;
+        inicio = Date.now();
+      }
+      const du = dur(), dec = Date.now() - inicio;
+      onTelemetry({
+        estado, manutencao: cfg.man, pico: pico(), presenca: pres, distanciaCm: d,
+        faseDuracaoMs: du, faseRestanteMs: Math.max(0, du - dec),
+        config: { verdePadrao: cfg.vp, vermelhoPadrao: cfg.rp, verdePico: cfg.vk, vermelhoPico: cfg.rk, picoInicio: cfg.pi, picoFim: cfg.pf },
+        ciclos, deteccoes: det, rssi: -55 - Math.round(Math.random() * 6), uptime: Math.round((Date.now() - boot) / 1000),
+      });
+    }
+    function apply(p) {
+      Object.assign(cfg, { vp: p.tempoPadrao.carro, rp: p.tempoPadrao.pedestre, vk: p.tempoHorarioPico.carro, rk: p.tempoHorarioPico.pedestre, pi: p.horarioPico.inicio, pf: p.horarioPico.fim, man: p.statusOperacional === 'manutencao' });
+      if (!cfg.man) { estado = 'VERDE'; inicio = Date.now(); }
+      step();
+    }
+    function start() {
+      const t = Date.now();
+      for (let i = 240; i > 0; i--) {
+        const fakeNow = t - i * 1000;
+        const realNow = Date.now;
+        Date.now = () => fakeNow;
+        if (i === 240) inicio = fakeNow;
+        step();
+        Date.now = realNow;
+      }
+      setInterval(step, 1000);
+    }
+    return { start, apply };
+  })();
+
+  if (DEMO) {
+    deviceOnline = true;
+    sim.start();
+  } else {
+    client = mqtt.connect(BROKER, { clientId: 'dashboard-' + Math.random().toString(16).slice(2, 10), reconnectPeriod: 3000, clean: true });
+    client.on('connect', () => {
+      brokerOk = true; updatePills();
+      client.subscribe([T_TELE, T_ONLINE]);
+      log('Dashboard conectado ao broker');
+    });
+    client.on('close', () => { if (brokerOk) log('Conexão com o broker perdida'); brokerOk = false; updatePills(); });
+    client.on('message', (topic, buf) => {
+      const txt = buf.toString();
+      if (topic === T_ONLINE) return onOnline(txt.trim());
+      try { onTelemetry(JSON.parse(txt)); } catch { console.warn('Telemetria inválida:', txt); }
+    });
+  }
+
+  setInterval(tick, 200);
+  setInterval(() => { if (samples.length) drawChart(); }, 1000);
+  drawChart();
+  tick();
+})();
+</script>
+</body>
+</html>

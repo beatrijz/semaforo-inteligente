@@ -38,6 +38,8 @@ const char* WIFI_PASS = "";
 const char* MQTT_HOST = "broker.hivemq.com";    // mesmo broker usado pela plataforma web
 const int   MQTT_PORT = 1883;
 const char* TOPICO    = "Ifpe/Semaforo/Semaforo1";  // tópico publicado pela plataforma
+const char* TOPICO_TELEMETRIA = "Ifpe/Semaforo/Semaforo1/telemetria";  // dados enviados ao dashboard
+const char* TOPICO_ONLINE     = "Ifpe/Semaforo/Semaforo1/online";      // "1" conectado / "0" offline (LWT)
 
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
@@ -62,6 +64,12 @@ bool manutencao = false;              // true quando o status recebido é "manut
 // --- Sensor ---
 bool presenca = false;                // true quando há veículo/pedestre próximo
 const int DIST_PRESENCA_CM = 50;      // distância (cm) abaixo da qual há presença
+long distanciaCm = 999;               // última distância lida (999 = sem eco)
+
+// --- Contadores enviados ao dashboard ---
+unsigned long ciclos = 0;             // ciclos completos (volta ao verde)
+unsigned long deteccoes = 0;          // quantas vezes a presença foi detectada
+unsigned long ultimaTelemetria = 0;   // último envio de telemetria
 
 // --- Controle de tempo (sem delay, para não travar o semáforo) ---
 unsigned long ultimaLeitura = 0;      // última leitura do sensor
@@ -114,6 +122,7 @@ void callback(char* topic, byte* payload, unsigned int len) {
     inicioEstado = millis();
     aplicaLeds();
   }
+  publicaTelemetria();                // dashboard vê a nova configuração na hora
 }
 
 // Conecta ao Wi-Fi (chamada a cada loop; reconecta se cair)
@@ -128,9 +137,12 @@ void conectaMqtt() {
   if (millis() - ultimaTentativa < 3000) return;
   ultimaTentativa = millis();
   String id = "esp32-semaforo-" + String(random(0xffff), HEX);
-  if (mqtt.connect(id.c_str())) {
+  // Last Will: se o ESP32 cair, o broker publica "0" no tópico online
+  if (mqtt.connect(id.c_str(), TOPICO_ONLINE, 0, true, "0")) {
     mqtt.subscribe(TOPICO);
+    mqtt.publish(TOPICO_ONLINE, "1", true);
     Serial.println("MQTT conectado e inscrito no topico.");
+    publicaTelemetria();
   }
 }
 
@@ -173,6 +185,52 @@ unsigned long duracaoAtual() {
       return presenca ? base / 2 : base;
     }
   }
+}
+
+// =====================================================
+// TELEMETRIA: envia o estado atual ao dashboard (JSON)
+// Exemplo:
+// {"estado":"VERMELHO","manutencao":false,"pico":false,"presenca":true,
+//  "distanciaCm":32,"faseDuracaoMs":12500,"faseRestanteMs":8100,
+//  "config":{"verdePadrao":25,"vermelhoPadrao":25,"verdePico":35,
+//            "vermelhoPico":15,"picoInicio":"07:00","picoFim":"09:00"},
+//  "ciclos":4,"deteccoes":2,"rssi":-58,"uptime":312}
+// =====================================================
+void publicaTelemetria() {
+  if (!mqtt.connected()) return;      // E. condicional: só envia conectado
+  ultimaTelemetria = millis();
+
+  JsonDocument doc;
+  doc["estado"] = estado == VERDE ? "VERDE" : estado == AMARELO ? "AMARELO" : "VERMELHO";
+  doc["manutencao"] = manutencao;
+  doc["pico"] = emHorarioPico();
+  doc["presenca"] = presenca;
+  doc["distanciaCm"] = distanciaCm;
+
+  unsigned long duracao = duracaoAtual();
+  unsigned long decorrido = millis() - inicioEstado;
+  doc["faseDuracaoMs"] = duracao;
+  doc["faseRestanteMs"] = decorrido >= duracao ? 0 : duracao - decorrido;
+
+  char inicio[6], fim[6];
+  snprintf(inicio, sizeof(inicio), "%02d:%02d", picoInicio / 60, picoInicio % 60);
+  snprintf(fim, sizeof(fim), "%02d:%02d", picoFim / 60, picoFim % 60);
+  JsonObject cfg = doc["config"].to<JsonObject>();
+  cfg["verdePadrao"]    = tVerdePadrao / 1000;
+  cfg["vermelhoPadrao"] = tVermelhoPadrao / 1000;
+  cfg["verdePico"]      = tVerdePico / 1000;
+  cfg["vermelhoPico"]   = tVermelhoPico / 1000;
+  cfg["picoInicio"]     = inicio;
+  cfg["picoFim"]        = fim;
+
+  doc["ciclos"] = ciclos;
+  doc["deteccoes"] = deteccoes;
+  doc["rssi"] = WiFi.RSSI();
+  doc["uptime"] = millis() / 1000;
+
+  char buf[400];
+  serializeJson(doc, buf, sizeof(buf));
+  mqtt.publish(TOPICO_TELEMETRIA, buf);
 }
 
 // =====================================================
@@ -230,12 +288,20 @@ void loop() {
   if (millis() - ultimaLeitura >= 200) {
     ultimaLeitura = millis();
     long d = lerDistanciaCm();
+    distanciaCm = d;
     bool novo = (d < DIST_PRESENCA_CM); // E. condicional: presença se estiver perto
 
     if (novo != presenca) {             // E. condicional: só avisa quando muda
       presenca = novo;
+      if (presenca) deteccoes++;
       Serial.printf("Distancia: %ld cm | presenca: %s\n", d, presenca ? "SIM" : "NAO");
+      publicaTelemetria();
     }
+  }
+
+  // Telemetria periódica para o dashboard (a cada 1 s)
+  if (millis() - ultimaTelemetria >= 1000) {
+    publicaTelemetria();
   }
 
   // E. condicional: em manutenção, só pisca o amarelo
@@ -248,7 +314,9 @@ void loop() {
   if (millis() - inicioEstado >= duracaoAtual()) {
     estado = (Estado)((estado + 1) % 3);   // VERDE -> AMARELO -> VERMELHO -> VERDE
     inicioEstado = millis();
+    if (estado == VERDE) ciclos++;         // voltou ao verde: um ciclo completo
     aplicaLeds();                          // F. atualiza os LEDs
     Serial.printf("Estado: %s\n", estado == VERDE ? "VERDE" : estado == AMARELO ? "AMARELO" : "VERMELHO");
+    publicaTelemetria();
   }
 }
