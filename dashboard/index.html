@@ -1,187 +1,270 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Semáforo Inteligente · Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+  const temaUrl = { claro: 'light', escuro: 'dark' }[new URLSearchParams(location.search).get('tema')];
+  document.documentElement.dataset.theme = temaUrl || localStorage.getItem('semaforo-tema') || 'dark';
+</script>
 <style>
-  :root {
-    color-scheme: light;
-    --page: #f9f9f7;
-    --surface: #fcfcfb;
-    --ink: #0b0b0b;
-    --ink-2: #52514e;
-    --muted: #898781;
-    --grid: #e1e0d9;
-    --axis: #c3c2b7;
-    --border: rgba(11,11,11,0.10);
-    --series: #2a78d6;
-    --series-wash: rgba(42,120,214,0.10);
-    --good: #0ca30c;
-    --warn: #fab219;
-    --crit: #d03b3b;
-    --off: #e1e0d9;
-    --good-text: #006300;
-    --housing: #2c2c2a;
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0a0d13;
+    --glow: rgba(79,140,255,.10);
+    --card: #121722;
+    --card-2: #171d2a;
+    --line: rgba(255,255,255,.07);
+    --ink: #eef1f6;
+    --ink-2: #a9b1c2;
+    --muted: #6c7489;
+    --grid: rgba(255,255,255,.06);
+    --track: rgba(255,255,255,.08);
+    --accent: #4f8cff;
+    --verde: #22c55e;
+    --amarelo: #f5b301;
+    --vermelho: #ef4444;
+    --manut: #7c859b;
+    --shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 10px 30px rgba(0,0,0,.25);
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      color-scheme: dark;
-      --page: #0d0d0d;
-      --surface: #1a1a19;
-      --ink: #f0efec;
-      --ink-2: #c3c2b7;
-      --grid: #2c2c2a;
-      --axis: #383835;
-      --border: rgba(255,255,255,0.10);
-      --series: #3987e5;
-      --series-wash: rgba(57,135,229,0.14);
-      --off: #383835;
-      --good-text: #0ca30c;
-      --housing: #0d0d0d;
-    }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --page: #f3f5f9;
+    --glow: rgba(79,140,255,.10);
+    --card: #ffffff;
+    --card-2: #f7f8fb;
+    --line: rgba(15,23,42,.08);
+    --ink: #0f172a;
+    --ink-2: #4b5567;
+    --muted: #8a93a6;
+    --grid: rgba(15,23,42,.07);
+    --track: rgba(15,23,42,.08);
+    --accent: #2f6fe8;
+    --verde: #16a34a;
+    --amarelo: #d99a00;
+    --vermelho: #dc2626;
+    --manut: #8a93a6;
+    --shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.06);
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; background: var(--page); color: var(--ink);
-    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; min-height: 100vh; color: var(--ink);
+    background: radial-gradient(1200px 500px at 15% -10%, var(--glow), transparent 60%), var(--page);
+    font: 14px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 1200px; margin: 0 auto; padding: 24px 20px 48px; }
-  header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; margin-bottom: 20px; }
-  h1 { font-size: 22px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
-  .sub { color: var(--ink-2); margin-top: 2px; }
-  .sub code { font-size: 12.5px; }
-  .pills { display: flex; gap: 8px; flex-wrap: wrap; }
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: 13px; color: var(--ink-2); }
-  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .pill[data-s="ok"] .dot { background: var(--good); }
-  .pill[data-s="warn"] .dot { background: var(--warn); }
-  .pill[data-s="bad"] .dot { background: var(--crit); }
+  main { max-width: 1240px; margin: 0 auto; padding: 28px 24px 48px; }
+  svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
-  .grid { display: grid; gap: 16px; }
-  .top { grid-template-columns: minmax(300px, 380px) 1fr; }
-  .bottom { grid-template-columns: 1fr 1fr; }
-  @media (max-width: 860px) { .top, .bottom { grid-template-columns: 1fr; } }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; min-width: 0; }
-  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: var(--ink); }
-  .card h2 .hint { font-weight: 400; color: var(--muted); margin-left: 6px; }
+  header { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .logo { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(160deg, #262c3a, #12161f); display: grid; place-items: center; box-shadow: var(--shadow); border: 1px solid var(--line); }
+  h1 { font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.02em; }
+  .sub { color: var(--ink-2); font-size: 13px; }
+  .sub code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12px; color: var(--ink); background: var(--card-2); border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); position: relative; }
+  .pill[data-s="ok"] .dot { background: var(--verde); box-shadow: 0 0 0 3px color-mix(in srgb, var(--verde) 25%, transparent); animation: pulse 2s infinite; }
+  .pill[data-s="warn"] .dot { background: var(--amarelo); }
+  .pill[data-s="bad"] .dot { background: var(--vermelho); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--verde) 0%, transparent); } }
+  .icon-btn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); display: grid; place-items: center; cursor: pointer; }
+  .icon-btn:hover { color: var(--ink); }
 
-  .phase { display: flex; gap: 22px; align-items: center; }
-  .light { background: var(--housing); border-radius: 16px; padding: 10px; display: grid; gap: 8px; flex: none; }
-  .lamp { width: 46px; height: 46px; border-radius: 50%; background: #3a3a37; opacity: .35; transition: opacity .15s, box-shadow .15s; }
-  .lamp.r { background: var(--crit); } .lamp.y { background: var(--warn); } .lamp.g { background: var(--good); }
-  .lamp.on { opacity: 1; box-shadow: 0 0 18px 2px currentColor; }
-  .lamp.r.on { color: rgba(208,59,59,.55); } .lamp.y.on { color: rgba(250,178,25,.55); } .lamp.g.on { color: rgba(12,163,12,.55); }
-  .phase-info { min-width: 0; flex: 1; }
-  .phase-name { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
-  .hero { font-size: 52px; font-weight: 650; line-height: 1.05; letter-spacing: -0.02em; margin: 2px 0 2px; }
-  .hero small { font-size: 20px; font-weight: 500; color: var(--ink-2); margin-left: 2px; }
-  .of { color: var(--muted); font-size: 13px; }
-  .bar { height: 6px; background: var(--grid); border-radius: 3px; margin: 12px 0 14px; overflow: hidden; }
-  .bar > i { display: block; height: 100%; width: 0; background: var(--ink-2); border-radius: 3px; }
+  .grid { display: grid; gap: 18px; }
+  .top { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+  .bottom { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); margin-top: 18px; align-items: start; }
+  @media (max-width: 940px) { .top, .bottom { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px; min-width: 0; box-shadow: var(--shadow); }
+  .card-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+  .card-title h2 { font-size: 13px; font-weight: 600; margin: 0; color: var(--ink-2); text-transform: uppercase; letter-spacing: .06em; }
+
+  .hero { display: grid; grid-template-columns: auto auto 1fr; gap: 26px; align-items: center; }
+  @media (max-width: 520px) { .hero { grid-template-columns: auto 1fr; } .hero .meta { grid-column: 1 / -1; } }
+  .housing { background: linear-gradient(180deg, #262b36, #11141b); border: 1px solid rgba(255,255,255,.06); border-radius: 26px; padding: 12px; display: grid; gap: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06); }
+  .lamp { width: 52px; height: 52px; border-radius: 50%; position: relative; box-shadow: inset 0 3px 8px rgba(0,0,0,.7); transition: background .2s, box-shadow .2s; }
+  .lamp::after { content: ""; position: absolute; inset: 8px 14px auto 10px; height: 12px; border-radius: 50%; background: rgba(255,255,255,.07); }
+  .lamp.r { background: #3a1414; } .lamp.y { background: #3a2c0a; } .lamp.g { background: #0d2c17; }
+  .lamp.r.on { background: radial-gradient(circle at 40% 35%, #ffc2bb, #ff3b30 45%, #a5100a); box-shadow: 0 0 28px 6px rgba(255,59,48,.5), inset 0 -4px 8px rgba(0,0,0,.25); }
+  .lamp.y.on { background: radial-gradient(circle at 40% 35%, #fff0b3, #ffbf00 45%, #a87400); box-shadow: 0 0 28px 6px rgba(255,191,0,.45), inset 0 -4px 8px rgba(0,0,0,.25); }
+  .lamp.g.on { background: radial-gradient(circle at 40% 35%, #c4ffd5, #1fd65f 45%, #087a2e); box-shadow: 0 0 28px 6px rgba(31,214,95,.45), inset 0 -4px 8px rgba(0,0,0,.25); }
+
+  .ring { position: relative; width: 156px; height: 156px; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 10; }
+  .ring .track { stroke: var(--track); }
+  .ring .arc { stroke: var(--muted); stroke-linecap: round; transition: stroke .3s; }
+  .ring .center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+  .ring .num { font-size: 46px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; }
+  .ring .num small { font-size: 18px; font-weight: 600; color: var(--ink-2); margin-left: 1px; letter-spacing: 0; }
+  .ring .lbl { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+
+  .meta { display: grid; gap: 14px; min-width: 0; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 10px; border-radius: 999px; font-weight: 600; font-size: 14px; width: fit-content; background: color-mix(in srgb, var(--c, var(--muted)) 16%, transparent); color: var(--ink); border: 1px solid color-mix(in srgb, var(--c, var(--muted)) 35%, transparent); }
+  .chip i { width: 9px; height: 9px; border-radius: 50%; background: var(--c, var(--muted)); box-shadow: 0 0 10px var(--c, transparent); }
+  .kv { display: grid; gap: 2px; }
+  .kv .k { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .kv .v { font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .ped { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--card-2); border: 1px solid var(--line); }
+  .ped .pi { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: #11141b; color: var(--c, var(--muted)); }
+  .ped .pi svg { width: 20px; height: 20px; }
+  .ped b { display: block; font-size: 13.5px; }
+  .ped span { font-size: 12px; color: var(--muted); }
   .badges { display: flex; gap: 6px; flex-wrap: wrap; }
-  .badge { font-size: 12px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border); color: var(--ink-2); }
-  .badge.strong { color: var(--ink); font-weight: 600; }
+  .badge { font-size: 11.5px; font-weight: 500; padding: 3px 9px; border-radius: 999px; background: var(--card-2); border: 1px solid var(--line); color: var(--ink-2); }
+  .badge.hot { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 
-  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 1px; background: var(--border); border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
-  @media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, minmax(0,1fr)); } }
-  .tile { background: var(--surface); padding: 16px 18px; min-width: 0; }
-  .tile .k { font-size: 12.5px; color: var(--ink-2); }
-  .tile .v { font-size: 28px; font-weight: 650; margin-top: 4px; letter-spacing: -0.01em; white-space: nowrap; }
-  .tile .v small { font-size: 14px; font-weight: 500; color: var(--ink-2); margin-left: 3px; }
-  .tile .n { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .yes { color: var(--good-text); }
+  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; }
+  @media (max-width: 600px) { .tiles { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  .tile { padding: 18px; transition: border-color .3s, box-shadow .3s; }
+  .tile .head { display: flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: 12.5px; font-weight: 500; }
+  .tile .ic { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; color: var(--t, var(--accent)); background: color-mix(in srgb, var(--t, var(--accent)) 14%, transparent); }
+  .tile .v { font-size: 30px; font-weight: 700; margin-top: 14px; letter-spacing: -0.03em; white-space: nowrap; line-height: 1.1; }
+  .tile .v small { font-size: 14px; font-weight: 500; color: var(--ink-2); margin-left: 3px; letter-spacing: 0; }
+  .tile .n { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .tile.active { --t: var(--verde); border-color: color-mix(in srgb, var(--verde) 45%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--verde) 12%, transparent), var(--shadow); }
+  .tile.active .v { color: var(--verde); }
 
-  .chart-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-  .chart-head h2 { margin: 0; }
-  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  .seg button { font: inherit; font-size: 12.5px; padding: 4px 10px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; }
-  .seg button + button { border-left: 1px solid var(--border); }
-  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+  .seg { display: inline-flex; padding: 3px; gap: 2px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; }
+  .seg button { font: inherit; font-size: 12.5px; font-weight: 500; padding: 5px 12px; border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.25); }
   .chart-wrap { position: relative; }
   svg.chart { display: block; width: 100%; overflow: visible; }
-  .chart text { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
-  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 6px; }
-  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .chart text { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; font-family: inherit; }
+  .legend { display: flex; gap: 8px 16px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
   .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
-  .legend i.line { height: 2px; width: 14px; border-radius: 1px; }
-  .legend i.dash { height: 0; width: 14px; border-top: 2px dashed var(--muted); border-radius: 0; }
-  .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0,0,0,.12); border-radius: 8px; padding: 8px 10px; font-size: 12px; min-width: 150px; display: none; z-index: 2; }
-  .tip b { font-weight: 600; }
-  .tip .row { display: flex; justify-content: space-between; gap: 12px; color: var(--ink-2); }
-  .tip .row span:last-child { color: var(--ink); font-variant-numeric: tabular-nums; }
-  .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+  .legend i.line { height: 3px; width: 16px; border-radius: 2px; background: var(--accent); }
+  .legend i.dash { height: 0; width: 16px; border-top: 2px dashed var(--muted); border-radius: 0; }
+  .tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line); box-shadow: 0 12px 32px rgba(0,0,0,.3); border-radius: 12px; padding: 10px 12px; font-size: 12px; min-width: 170px; display: none; z-index: 2; }
+  .tip b { font-weight: 600; display: block; margin-bottom: 4px; }
+  .tip .row { display: flex; justify-content: space-between; gap: 14px; color: var(--ink-2); padding: 1px 0; }
+  .tip .row span:last-child { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; }
+  .tip .sw { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .empty { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+  .spinner { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--track); border-top-color: var(--accent); animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-  dl.cfg { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 16px; margin: 0 0 16px; font-variant-numeric: tabular-nums; }
-  dl.cfg .h { color: var(--muted); font-size: 12px; }
-  dl.cfg dt { color: var(--ink-2); }
-  dl.cfg dd { margin: 0; text-align: right; }
-  form { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px 14px; border-top: 1px solid var(--grid); padding-top: 14px; }
+  .cycle { display: grid; gap: 16px; }
+  .cyc-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; gap: 8px; }
+  .cyc-head b { font-weight: 600; font-size: 13.5px; }
+  .cyc-head .tag { font-size: 11px; font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); padding: 2px 8px; border-radius: 999px; margin-left: 8px; }
+  .cyc-head span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .cyc-bar { display: flex; gap: 3px; height: 30px; }
+  .cyc-bar div { border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #fff; min-width: 34px; transition: flex-grow .4s; }
+  .cyc-bar .a { color: #1a1300; }
+  .cycle .off { opacity: .5; }
+
+  details { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+  summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; color: var(--ink); }
+  summary::-webkit-details-marker { display: none; }
+  summary svg { transition: transform .2s; }
+  details[open] summary svg { transform: rotate(90deg); }
+  form { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px 14px; margin-top: 16px; }
   form .full { grid-column: 1 / -1; }
-  label { display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
-  input, select { font: inherit; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--axis); background: var(--page); color: var(--ink); width: 100%; }
-  button.primary { font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 8px; border: 0; background: var(--ink); color: var(--surface); cursor: pointer; justify-self: start; }
-  button.primary:disabled { opacity: .45; cursor: not-allowed; }
-  .formnote { font-size: 12px; color: var(--muted); align-self: center; }
+  label { display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); font-weight: 500; }
+  .field { position: relative; }
+  .field em { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-style: normal; color: var(--muted); font-size: 12px; pointer-events: none; }
+  input, select { font: inherit; font-size: 13.5px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card-2); color: var(--ink); width: 100%; outline: none; transition: border-color .15s, box-shadow .15s; }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+  button.primary { font: inherit; font-weight: 600; font-size: 13.5px; padding: 10px 18px; border-radius: 10px; border: 0; background: var(--accent); color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent); }
+  button.primary:hover { filter: brightness(1.08); }
+  .formnote { font-size: 12px; color: var(--muted); }
 
-  .log { max-height: 420px; overflow: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 0 8px 6px 0; position: sticky; top: 0; background: var(--surface); }
-  td { padding: 6px 8px 6px 0; border-top: 1px solid var(--grid); vertical-align: top; }
-  td.t { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; width: 1%; }
-  .tag { display: inline-flex; align-items: center; gap: 5px; }
-  .tag i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); }
-  footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .timeline { list-style: none; margin: 0; padding: 0 6px 0 0; max-height: 236px; overflow: auto; position: relative; }
+  .timeline li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; padding: 0 0 14px; position: relative; animation: fadein .35s ease; }
+  .timeline li::before { content: ""; position: absolute; left: 10px; top: 18px; bottom: 0; width: 2px; background: var(--line); }
+  .timeline li:last-child::before { display: none; }
+  .timeline .d { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--c, var(--muted)) 16%, transparent); }
+  .timeline .d i { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--muted)); }
+  .timeline .tx { font-size: 13px; padding-top: 1px; }
+  .timeline .tm { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 2px; }
+  .timeline .none { color: var(--muted); font-size: 13px; display: block; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(-4px); } }
+
+  footer { color: var(--muted); font-size: 12px; margin-top: 22px; text-align: center; }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2.5 12h4l3-8 5 16 3-8h4"/></symbol>
+  <symbol id="i-cycle" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3.5M4 3.5v4h4M4 13a8 8 0 0 0 14.9 3.5M20 20.5v-4h-4"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.6a10 10 0 0 1 14 0M8.5 16.3a5 5 0 0 1 7 0"/><circle cx="12" cy="19.8" r=".6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></symbol>
+  <symbol id="i-walk" viewBox="0 0 24 24"><circle cx="13.5" cy="4" r="2"/><path d="M9 21l3-6.5 3 3V21M12 14.5l-1.2-5.5 4.2 1.5 2.5 3M10.8 9l-3.3 2.2-.9 3.3"/></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 12V6a1.5 1.5 0 0 1 3 0v5M11 10.5V4.5a1.5 1.5 0 0 1 3 0v6M14 10.5V5.5a1.5 1.5 0 0 1 3 0V12M17 11a1.5 1.5 0 0 1 3 0v3.5a7 7 0 0 1-7 7h-.8a6.5 6.5 0 0 1-5.6-3.2L4.3 14.4a1.6 1.6 0 0 1 2.6-1.8L8 14"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3.5 2.5 20h19L12 3.5Z"/><path d="M12 10v4.5M12 17.2v.3"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></symbol>
+</svg>
+
 <main>
   <header>
-    <div>
-      <h1>Semáforo Inteligente</h1>
-      <div class="sub">Monitoramento em tempo real · tópico <code id="topicLabel"></code></div>
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg width="16" height="30" viewBox="0 0 16 30"><circle cx="8" cy="6" r="4" fill="#ff3b30"/><circle cx="8" cy="15" r="4" fill="#ffbf00"/><circle cx="8" cy="24" r="4" fill="#1fd65f"/></svg>
+      </div>
+      <div>
+        <h1>Semáforo Inteligente</h1>
+        <div class="sub">Central de monitoramento · <code id="topicLabel"></code></div>
+      </div>
     </div>
     <div class="pills">
       <span class="pill" id="pBroker" data-s=""><span class="dot"></span><span>Broker: conectando…</span></span>
       <span class="pill" id="pDevice" data-s=""><span class="dot"></span><span>ESP32: aguardando</span></span>
-      <span class="pill" id="pLast"><span>Última leitura: —</span></span>
+      <span class="pill" id="pLast"><svg class="i" style="width:14px;height:14px"><use href="#i-clock"/></svg><span>—</span></span>
+      <button class="icon-btn" id="themeBtn" type="button" aria-label="Alternar tema claro/escuro"><svg class="i"><use href="#i-sun"/></svg></button>
     </div>
   </header>
 
   <div class="grid top">
     <section class="card" aria-labelledby="hPhase">
-      <h2 id="hPhase">Fase atual</h2>
-      <div class="phase">
-        <div class="light" aria-hidden="true">
+      <div class="card-title"><h2 id="hPhase">Fase atual</h2><div class="badges" id="badges"></div></div>
+      <div class="hero">
+        <div class="housing" aria-hidden="true">
           <div class="lamp r" id="lampR"></div>
           <div class="lamp y" id="lampY"></div>
           <div class="lamp g" id="lampG"></div>
         </div>
-        <div class="phase-info">
-          <div class="phase-name" id="phaseName">Sem dados</div>
-          <div class="hero" id="countdown">—</div>
-          <div class="of" id="phaseOf">&nbsp;</div>
-          <div class="bar"><i id="phaseBar"></i></div>
-          <div class="badges" id="badges"></div>
+        <div class="ring">
+          <svg viewBox="0 0 156 156"><circle class="track" cx="78" cy="78" r="66"/><circle class="arc" id="arc" cx="78" cy="78" r="66"/></svg>
+          <div class="center"><div class="num" id="countdown">—</div><div class="lbl" id="phaseOf">aguardando</div></div>
+        </div>
+        <div class="meta">
+          <span class="chip" id="phaseChip"><i></i><span>Sem dados</span></span>
+          <div class="kv"><span class="k">Próxima fase</span><span class="v" id="nextPhase">—</span></div>
+          <div class="ped" id="ped">
+            <div class="pi"><svg class="i"><use href="#i-hand"/></svg></div>
+            <div><b>Pedestre</b><span>—</span></div>
+          </div>
         </div>
       </div>
     </section>
 
     <section class="tiles" aria-label="Indicadores">
-      <div class="tile"><div class="k">Distância medida</div><div class="v" id="tDist">—</div><div class="n">presença abaixo de 50 cm</div></div>
-      <div class="tile"><div class="k">Presença</div><div class="v" id="tPres">—</div><div class="n" id="tPresN">&nbsp;</div></div>
-      <div class="tile"><div class="k">Detecções</div><div class="v" id="tDet">—</div><div class="n">desde que o ESP32 ligou</div></div>
-      <div class="tile"><div class="k">Ciclos completos</div><div class="v" id="tCyc">—</div><div class="n">verde → amarelo → vermelho</div></div>
-      <div class="tile"><div class="k">Sinal Wi-Fi</div><div class="v" id="tRssi">—</div><div class="n" id="tRssiN">&nbsp;</div></div>
-      <div class="tile"><div class="k">Tempo ligado</div><div class="v" id="tUp">—</div><div class="n">uptime do ESP32</div></div>
+      <div class="card tile" id="tileDist"><div class="head"><span class="ic"><svg class="i"><use href="#i-target"/></svg></span>Distância</div><div class="v" id="tDist">—</div><div class="n">sensor HC-SR04</div></div>
+      <div class="card tile" id="tilePres"><div class="head"><span class="ic"><svg class="i"><use href="#i-person"/></svg></span>Presença</div><div class="v" id="tPres">—</div><div class="n" id="tPresN">abaixo de 50 cm</div></div>
+      <div class="card tile"><div class="head"><span class="ic"><svg class="i"><use href="#i-pulse"/></svg></span>Detecções</div><div class="v" id="tDet">—</div><div class="n">desde que ligou</div></div>
+      <div class="card tile"><div class="head"><span class="ic"><svg class="i"><use href="#i-cycle"/></svg></span>Ciclos</div><div class="v" id="tCyc">—</div><div class="n">completos</div></div>
+      <div class="card tile"><div class="head"><span class="ic"><svg class="i"><use href="#i-wifi"/></svg></span>Sinal Wi-Fi</div><div class="v" id="tRssi">—</div><div class="n" id="tRssiN">&nbsp;</div></div>
+      <div class="card tile"><div class="head"><span class="ic"><svg class="i"><use href="#i-clock"/></svg></span>Tempo ligado</div><div class="v" id="tUp">—</div><div class="n">uptime do ESP32</div></div>
     </section>
   </div>
 
-  <section class="card" style="margin-top:16px" aria-labelledby="hChart">
-    <div class="chart-head">
-      <h2 id="hChart">Distância do sensor e fases do semáforo</h2>
+  <section class="card" style="margin-top:18px" aria-labelledby="hChart">
+    <div class="card-title">
+      <h2 id="hChart">Distância do sensor e fases</h2>
       <div class="seg" role="group" aria-label="Janela de tempo">
         <button type="button" data-w="60" aria-pressed="false">1 min</button>
         <button type="button" data-w="300" aria-pressed="true">5 min</button>
@@ -191,50 +274,54 @@
     <div class="chart-wrap" id="chartWrap">
       <svg class="chart" id="chart" role="img" aria-label="Distância medida pelo HC-SR04 ao longo do tempo, com a faixa de fases do semáforo abaixo"></svg>
       <div class="tip" id="tip"></div>
-      <div class="empty" id="empty">Aguardando telemetria do ESP32…</div>
+      <div class="empty" id="empty"><div class="spinner"></div>Aguardando telemetria do ESP32…</div>
     </div>
     <div class="legend">
-      <span><i class="line" style="background:var(--series)"></i>Distância (cm)</span>
+      <span><i class="line"></i>Distância (cm)</span>
       <span><i class="dash"></i>Limite de presença (50 cm)</span>
-      <span><i style="background:var(--good)"></i>Verde</span>
-      <span><i style="background:var(--warn)"></i>Amarelo</span>
-      <span><i style="background:var(--crit)"></i>Vermelho</span>
-      <span><i style="background:var(--axis)"></i>Manutenção</span>
+      <span><i style="background:var(--verde)"></i>Verde</span>
+      <span><i style="background:var(--amarelo)"></i>Amarelo</span>
+      <span><i style="background:var(--vermelho)"></i>Vermelho</span>
+      <span><i style="background:var(--manut)"></i>Manutenção</span>
     </div>
   </section>
 
-  <div class="grid bottom" style="margin-top:16px">
+  <div class="grid bottom">
     <section class="card" aria-labelledby="hCfg">
-      <h2 id="hCfg">Configuração<span class="hint">em uso no ESP32</span></h2>
-      <dl class="cfg">
-        <span class="h"></span><span class="h">Padrão</span><span class="h">Pico</span>
-        <dt>Verde (carros)</dt><dd id="cVp">—</dd><dd id="cVk">—</dd>
-        <dt>Vermelho (pedestres)</dt><dd id="cRp">—</dd><dd id="cRk">—</dd>
-        <dt>Horário de pico</dt><dd id="cPk" style="grid-column: span 2">—</dd>
-      </dl>
-      <form id="cfgForm">
-        <label>Verde padrão (s)<input type="number" min="1" max="300" name="vp" value="25" required></label>
-        <label>Vermelho padrão (s)<input type="number" min="1" max="300" name="rp" value="25" required></label>
-        <label>Verde no pico (s)<input type="number" min="1" max="300" name="vk" value="35" required></label>
-        <label>Vermelho no pico (s)<input type="number" min="1" max="300" name="rk" value="15" required></label>
-        <label>Início do pico<input type="time" name="pi" value="07:00" required></label>
-        <label>Fim do pico<input type="time" name="pf" value="09:00" required></label>
-        <label class="full">Status operacional
-          <select name="st"><option value="ativo">Ativo</option><option value="manutencao">Manutenção (amarelo piscando)</option></select>
-        </label>
-        <button class="primary" type="submit" id="sendBtn">Enviar configuração</button>
-        <span class="formnote" id="formNote">Publica no tópico de configuração.</span>
-      </form>
+      <div class="card-title"><h2 id="hCfg">Configuração em uso</h2></div>
+      <div class="cycle">
+        <div id="cycPad">
+          <div class="cyc-head"><div><b>Padrão</b></div><span>—</span></div>
+          <div class="cyc-bar"></div>
+        </div>
+        <div id="cycPico">
+          <div class="cyc-head"><div><b>Horário de pico</b></div><span>—</span></div>
+          <div class="cyc-bar"></div>
+        </div>
+      </div>
+      <details id="cfgDetails">
+        <summary><svg class="i"><use href="#i-chev"/></svg>Alterar configuração</summary>
+        <form id="cfgForm">
+          <label>Verde padrão<div class="field"><input type="number" min="1" max="300" name="vp" value="25" required><em>s</em></div></label>
+          <label>Vermelho padrão<div class="field"><input type="number" min="1" max="300" name="rp" value="25" required><em>s</em></div></label>
+          <label>Verde no pico<div class="field"><input type="number" min="1" max="300" name="vk" value="35" required><em>s</em></div></label>
+          <label>Vermelho no pico<div class="field"><input type="number" min="1" max="300" name="rk" value="15" required><em>s</em></div></label>
+          <label>Início do pico<input type="time" name="pi" value="07:00" required></label>
+          <label>Fim do pico<input type="time" name="pf" value="09:00" required></label>
+          <label class="full">Status operacional
+            <select name="st"><option value="ativo">Ativo</option><option value="manutencao">Manutenção (amarelo piscando)</option></select>
+          </label>
+          <div class="actions">
+            <button class="primary" type="submit"><svg class="i"><use href="#i-send"/></svg>Enviar ao semáforo</button>
+            <span class="formnote" id="formNote">Publica no tópico de configuração do ESP32.</span>
+          </div>
+        </form>
+      </details>
     </section>
 
     <section class="card" aria-labelledby="hLog">
-      <h2 id="hLog">Eventos</h2>
-      <div class="log">
-        <table>
-          <thead><tr><th>Hora</th><th>Evento</th></tr></thead>
-          <tbody id="logBody"></tbody>
-        </table>
-      </div>
+      <div class="card-title"><h2 id="hLog">Eventos</h2></div>
+      <ul class="timeline" id="logBody"><li class="none-row"><span></span><span class="none">Nenhum evento ainda.</span><span></span></li></ul>
     </section>
   </div>
 
@@ -251,20 +338,33 @@
   const T_ONLINE = BASE + '/online';
   const STALE_MS = 5000;
   const KEEP_S = 900;
+  const AMARELO_S = 3;
 
   const $ = id => document.getElementById(id);
   const fmtTime = t => new Date(t).toLocaleTimeString('pt-BR');
   const FASE = {
-    VERDE: { label: 'Verde', color: 'var(--good)' },
-    AMARELO: { label: 'Amarelo', color: 'var(--warn)' },
-    VERMELHO: { label: 'Vermelho', color: 'var(--crit)' },
-    MANUTENCAO: { label: 'Manutenção', color: 'var(--axis)' },
+    VERDE: { label: 'Verde', color: 'var(--verde)', next: 'AMARELO' },
+    AMARELO: { label: 'Amarelo', color: 'var(--amarelo)', next: 'VERMELHO' },
+    VERMELHO: { label: 'Vermelho', color: 'var(--vermelho)', next: 'VERDE' },
+    MANUTENCAO: { label: 'Manutenção', color: 'var(--manut)', next: null },
   };
+  const icon = id => `<svg class="i"><use href="#${id}"/></svg>`;
+
+  const themeBtn = $('themeBtn');
+  const syncThemeIcon = () => themeBtn.innerHTML = icon(document.documentElement.dataset.theme === 'dark' ? 'i-sun' : 'i-moon');
+  themeBtn.addEventListener('click', () => {
+    const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = t;
+    localStorage.setItem('semaforo-tema', t);
+    syncThemeIcon();
+    drawChart();
+  });
+  syncThemeIcon();
 
   $('topicLabel').textContent = BASE;
   $('footer').textContent = DEMO
-    ? 'Modo demonstração: dados simulados no navegador, sem conexão MQTT.'
-    : `Broker ${BROKER} · telemetria em ${T_TELE} · status em ${T_ONLINE}`;
+    ? 'Modo demonstração · dados simulados no navegador, sem conexão MQTT'
+    : `Broker ${BROKER} · telemetria em ${T_TELE}`;
 
   let last = null, lastAt = 0, deviceOnline = null, brokerOk = false;
   let samples = [];
@@ -274,30 +374,33 @@
   function setPill(el, state, text) { el.dataset.s = state; el.lastElementChild.textContent = text; }
 
   function log(text, color) {
-    const tr = document.createElement('tr');
-    const tag = color ? `<span class="tag"><i style="background:${color}"></i>${text}</span>` : text;
-    tr.innerHTML = `<td class="t">${fmtTime(Date.now())}</td><td>${tag}</td>`;
     const body = $('logBody');
-    body.prepend(tr);
+    const none = body.querySelector('.none-row');
+    if (none) none.remove();
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="d" style="--c:${color || 'var(--accent)'}"><i></i></span><span class="tx"></span><span class="tm">${fmtTime(Date.now())}</span>`;
+    li.querySelector('.tx').textContent = text;
+    body.prepend(li);
     while (body.children.length > 60) body.lastElementChild.remove();
   }
 
-  function faseKey(m) { return m.manutencao ? 'MANUTENCAO' : m.estado; }
+  const faseKey = m => m.manutencao ? 'MANUTENCAO' : m.estado;
 
   function onTelemetry(m) {
     const now = Date.now();
     if (last) {
-      if (faseKey(m) !== faseKey(last)) log(`Fase: ${FASE[faseKey(m)].label}`, FASE[faseKey(m)].color);
-      if (m.presenca !== last.presenca) log(m.presenca ? `Presença detectada (${m.distanciaCm} cm)` : 'Presença encerrada');
+      const k = faseKey(m);
+      if (k !== faseKey(last)) log(`Semáforo mudou para ${FASE[k].label.toLowerCase()}`, FASE[k].color);
+      if (m.presenca !== last.presenca) log(m.presenca ? `Presença detectada a ${m.distanciaCm} cm` : 'Presença encerrada', m.presenca ? 'var(--verde)' : 'var(--muted)');
       if (m.pico !== last.pico) log(m.pico ? 'Entrou no horário de pico' : 'Saiu do horário de pico');
       if (JSON.stringify(m.config) !== JSON.stringify(last.config)) log('Nova configuração aplicada no ESP32');
-      if (m.uptime < last.uptime) log('ESP32 reiniciou');
+      if (m.uptime < last.uptime) log('ESP32 reiniciou', 'var(--amarelo)');
     } else {
       log('Primeira telemetria recebida');
       fillForm(m);
     }
     last = m; lastAt = now;
-    const d = m.distanciaCm >= 999 || m.distanciaCm == null ? null : m.distanciaCm;
+    const d = m.distanciaCm == null || m.distanciaCm >= 999 ? null : m.distanciaCm;
     samples.push({ t: now, d, fase: faseKey(m), presenca: m.presenca });
     const cut = now - KEEP_S * 1000;
     while (samples.length && samples[0].t < cut) samples.shift();
@@ -307,79 +410,119 @@
 
   function onOnline(v) {
     const on = v === '1';
-    if (deviceOnline !== null && on !== deviceOnline) log(on ? 'ESP32 conectou ao broker' : 'ESP32 desconectou (Last Will)');
+    if (deviceOnline !== null && on !== deviceOnline) log(on ? 'ESP32 conectou ao broker' : 'ESP32 desconectou', on ? 'var(--verde)' : 'var(--vermelho)');
     deviceOnline = on;
     updatePills();
   }
 
   function updatePills() {
-    if (DEMO) { setPill($('pBroker'), 'ok', 'Demonstração'); }
-    else setPill($('pBroker'), brokerOk ? 'ok' : 'bad', brokerOk ? 'Broker: conectado' : 'Broker: desconectado');
+    if (DEMO) setPill($('pBroker'), 'ok', 'Demonstração');
+    else setPill($('pBroker'), brokerOk ? 'ok' : 'bad', brokerOk ? 'Broker conectado' : 'Broker desconectado');
     const stale = !lastAt || Date.now() - lastAt > STALE_MS;
-    if (deviceOnline === false) setPill($('pDevice'), 'bad', 'ESP32: offline');
-    else if (stale && lastAt) setPill($('pDevice'), 'warn', 'ESP32: sem resposta');
-    else if (!lastAt) setPill($('pDevice'), '', 'ESP32: aguardando');
-    else setPill($('pDevice'), 'ok', 'ESP32: online');
-    $('pLast').lastElementChild.textContent = lastAt ? `Última leitura: ${fmtTime(lastAt)}` : 'Última leitura: —';
+    if (deviceOnline === false) setPill($('pDevice'), 'bad', 'ESP32 offline');
+    else if (stale && lastAt) setPill($('pDevice'), 'warn', 'ESP32 sem resposta');
+    else if (!lastAt) setPill($('pDevice'), '', 'ESP32 aguardando');
+    else setPill($('pDevice'), 'ok', 'ESP32 online');
+    $('pLast').lastElementChild.textContent = lastAt ? fmtTime(lastAt) : '—';
   }
 
   function fmtUptime(s) {
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
-    return h ? `${h}h ${String(m).padStart(2, '0')}min` : m ? `${m}min ${String(x).padStart(2, '0')}s` : `${x}s`;
+    return h ? `${h}<small>h</small> ${m}<small>min</small>` : m ? `${m}<small>min</small> ${x}<small>s</small>` : `${x}<small>s</small>`;
+  }
+
+  function cycleBar(box, verde, vermelho, info, active) {
+    const total = verde + AMARELO_S + vermelho;
+    box.querySelector('.cyc-head span').textContent = `${info}ciclo de ${total} s`;
+    box.querySelector('.cyc-head div').innerHTML = box.querySelector('.cyc-head b').outerHTML + (active ? '<span class="tag">em uso</span>' : '');
+    box.querySelector('.cyc-bar').innerHTML =
+      `<div style="flex-grow:${verde};background:var(--verde)">${verde} s</div>` +
+      `<div class="a" style="flex-grow:${AMARELO_S};background:var(--amarelo)">${AMARELO_S} s</div>` +
+      `<div style="flex-grow:${vermelho};background:var(--vermelho)">${vermelho} s</div>`;
+    box.classList.toggle('off', !active);
   }
 
   function renderStatic() {
     const m = last;
     const d = m.distanciaCm >= 999 ? null : m.distanciaCm;
     $('tDist').innerHTML = d == null ? 'sem eco' : `${d}<small>cm</small>`;
-    $('tPres').innerHTML = m.presenca ? '<span class="yes">Sim</span>' : 'Não';
-    $('tPresN').textContent = m.presenca ? 'vermelho reduzido pela metade' : 'tempos normais';
+    $('tPres').textContent = m.presenca ? 'Detectada' : 'Livre';
+    $('tPresN').textContent = m.presenca ? 'vermelho cai pela metade' : 'abaixo de 50 cm';
+    $('tilePres').classList.toggle('active', !!m.presenca);
     $('tDet').textContent = m.deteccoes;
     $('tCyc').textContent = m.ciclos;
     $('tRssi').innerHTML = m.rssi != null ? `${m.rssi}<small>dBm</small>` : '—';
-    $('tRssiN').textContent = m.rssi == null ? '' : m.rssi >= -60 ? 'bom' : m.rssi >= -75 ? 'regular' : 'fraco';
-    $('tUp').textContent = fmtUptime(m.uptime);
+    $('tRssiN').textContent = m.rssi == null ? '' : m.rssi >= -60 ? 'sinal bom' : m.rssi >= -75 ? 'sinal regular' : 'sinal fraco';
+    $('tUp').innerHTML = fmtUptime(m.uptime);
 
     const c = m.config || {};
-    $('cVp').textContent = `${c.verdePadrao} s`; $('cVk').textContent = `${c.verdePico} s`;
-    $('cRp').textContent = `${c.vermelhoPadrao} s`; $('cRk').textContent = `${c.vermelhoPico} s`;
-    $('cPk').textContent = `${c.picoInicio} às ${c.picoFim}`;
+    cycleBar($('cycPad'), c.verdePadrao, c.vermelhoPadrao, '', !m.pico && !m.manutencao);
+    cycleBar($('cycPico'), c.verdePico, c.vermelhoPico, `${c.picoInicio}–${c.picoFim} · `, m.pico && !m.manutencao);
 
     const b = [];
-    if (m.manutencao) b.push('<span class="badge strong">Manutenção</span>');
-    else b.push(m.pico ? '<span class="badge strong">Horário de pico</span>' : '<span class="badge">Fora do pico</span>');
-    if (!m.manutencao && m.presenca && m.estado === 'VERMELHO') b.push('<span class="badge strong">Vermelho encurtado por presença</span>');
+    if (m.manutencao) b.push('<span class="badge hot">Manutenção</span>');
+    else b.push(m.pico ? '<span class="badge hot">Horário de pico</span>' : '<span class="badge">Fora do pico</span>');
+    if (!m.manutencao && m.presenca && m.estado === 'VERMELHO') b.push('<span class="badge hot">Vermelho encurtado</span>');
     $('badges').innerHTML = b.join('');
   }
 
+  const CIRC = 2 * Math.PI * 66;
+  const arc = $('arc');
+  arc.style.strokeDasharray = CIRC;
+  arc.style.strokeDashoffset = CIRC;
+
+  function setPed(state) {
+    const P = {
+      walk: { c: 'var(--verde)', ic: 'i-walk', t: 'Atravesse', s: 'vez do pedestre' },
+      wait: { c: 'var(--vermelho)', ic: 'i-hand', t: 'Aguarde', s: 'vez dos carros' },
+      warn: { c: 'var(--amarelo)', ic: 'i-warn', t: 'Atenção', s: 'em manutenção' },
+      none: { c: 'var(--muted)', ic: 'i-hand', t: 'Pedestre', s: 'sem dados' },
+    }[state];
+    const ped = $('ped');
+    ped.style.setProperty('--c', P.c);
+    ped.innerHTML = `<div class="pi">${icon(P.ic)}</div><div><b>${P.t}</b><span>${P.s}</span></div>`;
+  }
+
+  let pedState = null;
   function tick() {
     updatePills();
     if (!last) return;
     const stale = Date.now() - lastAt > STALE_MS;
     const m = last;
+    const k = faseKey(m), f = FASE[k];
     const blink = Math.floor(Date.now() / 500) % 2 === 0;
-    $('lampR').classList.toggle('on', !stale && !m.manutencao && m.estado === 'VERMELHO');
-    $('lampY').classList.toggle('on', !stale && (m.manutencao ? blink : m.estado === 'AMARELO'));
-    $('lampG').classList.toggle('on', !stale && !m.manutencao && m.estado === 'VERDE');
-    const f = FASE[faseKey(m)];
-    $('phaseName').innerHTML = `<span class="tag"><i style="background:${f.color}"></i>${f.label}${stale ? ' · dados desatualizados' : ''}</span>`;
-    if (m.manutencao) {
+    $('lampR').classList.toggle('on', !stale && k === 'VERMELHO');
+    $('lampY').classList.toggle('on', !stale && (k === 'MANUTENCAO' ? blink : k === 'AMARELO'));
+    $('lampG').classList.toggle('on', !stale && k === 'VERDE');
+
+    const chip = $('phaseChip');
+    chip.style.setProperty('--c', f.color);
+    chip.lastElementChild.textContent = stale ? `${f.label} · desatualizado` : f.label;
+    arc.style.stroke = f.color;
+
+    const ps = stale ? 'none' : k === 'MANUTENCAO' ? 'warn' : k === 'VERMELHO' ? 'walk' : 'wait';
+    if (ps !== pedState) { setPed(ps); pedState = ps; }
+
+    if (k === 'MANUTENCAO') {
       $('countdown').innerHTML = '—';
-      $('phaseOf').textContent = 'Ciclo suspenso, amarelo piscando';
-      $('phaseBar').style.width = '0';
+      $('phaseOf').textContent = 'ciclo suspenso';
+      $('nextPhase').textContent = 'Aguardando status ativo';
+      arc.style.strokeDashoffset = blink ? 0 : CIRC;
       return;
     }
     const rest = Math.max(0, m.faseRestanteMs - (Date.now() - lastAt));
     const dur = m.faseDuracaoMs || 1;
     $('countdown').innerHTML = `${Math.ceil(rest / 1000)}<small>s</small>`;
-    $('phaseOf').textContent = `restantes de ${Math.round(dur / 1000)} s nesta fase`;
-    $('phaseBar').style.width = `${Math.min(100, (1 - rest / dur) * 100)}%`;
+    $('phaseOf').textContent = `de ${Math.round(dur / 1000)} s`;
+    arc.style.strokeDashoffset = CIRC * (1 - Math.min(1, rest / dur));
+    const nx = FASE[f.next];
+    $('nextPhase').innerHTML = `<span class="chip" style="--c:${nx.color};font-size:12.5px;padding:3px 10px 3px 8px"><i></i>${nx.label}</span>`;
   }
 
   const svg = $('chart'), tip = $('tip');
   const NS = 'http://www.w3.org/2000/svg';
-  const H = 250, PAD = { l: 40, r: 12, t: 10, b: 24 }, STRIP = 16, GAP = 14;
-  let geo = null;
+  const H = 270, PAD = { l: 40, r: 12, t: 12, b: 26 }, STRIP = 18, GAP = 16;
+  let geo = null, hoverX = null;
 
   function el(name, attrs, parent) {
     const e = document.createElementNS(NS, name);
@@ -404,9 +547,16 @@
     const y = v => plotB - (Math.min(v, yMax) / yMax) * (plotB - PAD.t);
     const step = yMax <= 150 ? 25 : yMax <= 300 ? 50 : 100;
 
+    const defs = el('defs', {});
+    const grad = el('linearGradient', { id: 'areaGrad', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    el('stop', { offset: '0%', style: 'stop-color:var(--accent);stop-opacity:.32' }, grad);
+    el('stop', { offset: '100%', style: 'stop-color:var(--accent);stop-opacity:0' }, grad);
+    const clip = el('clipPath', { id: 'clip' }, defs);
+    el('rect', { x: PAD.l, y: 0, width: W - PAD.l - PAD.r, height: H }, clip);
+
     for (let v = 0; v <= yMax; v += step) {
-      el('line', { x1: PAD.l, x2: W - PAD.r, y1: y(v), y2: y(v), stroke: v === 0 ? 'var(--axis)' : 'var(--grid)', 'stroke-width': 1 });
-      el('text', { x: PAD.l - 8, y: y(v) + 4, 'text-anchor': 'end' }).textContent = v;
+      el('line', { x1: PAD.l, x2: W - PAD.r, y1: y(v), y2: y(v), stroke: 'var(--grid)', 'stroke-width': 1 });
+      el('text', { x: PAD.l - 10, y: y(v) + 4, 'text-anchor': 'end' }).textContent = v;
     }
     const tickEvery = windowS <= 60 ? 10 : windowS <= 300 ? 60 : 180;
     const first = Math.ceil(t0 / 1000 / tickEvery) * tickEvery * 1000;
@@ -415,26 +565,32 @@
       el('text', { x: x(t), y: H - 6, 'text-anchor': 'middle' }).textContent = lbl;
     }
 
-    el('line', { x1: PAD.l, x2: W - PAD.r, y1: y(50), y2: y(50), stroke: 'var(--muted)', 'stroke-width': 1.5, 'stroke-dasharray': '5 4' });
+    const ly = y(50);
+    el('line', { x1: PAD.l, x2: W - PAD.r, y1: ly, y2: ly, stroke: 'var(--muted)', 'stroke-width': 1.5, 'stroke-dasharray': '5 5' });
+    const lt = el('text', { x: PAD.l + 6, y: ly - 6, 'text-anchor': 'start' });
+    lt.textContent = 'presença < 50 cm';
 
-    const clip = el('clipPath', { id: 'clip' }, el('defs', {}));
-    el('rect', { x: PAD.l, y: 0, width: W - PAD.l - PAD.r, height: H }, clip);
     const g = el('g', { 'clip-path': 'url(#clip)' });
-
     let path = '', area = '', runStart = null, prev = null;
     const closeRun = () => { if (runStart != null) area += `L${x(prev.t)},${plotB}L${runStart},${plotB}Z`; runStart = null; };
     for (const s of vis) {
       if (s.d == null || (prev && s.t - prev.t > 4000)) closeRun();
       if (s.d == null) { prev = null; continue; }
-      if (runStart == null) { path += `M${x(s.t)},${y(s.d)}`; area += `M${x(s.t)},${y(s.d)}`; runStart = x(s.t); }
-      else { path += `L${x(s.t)},${y(s.d)}`; area += `L${x(s.t)},${y(s.d)}`; }
+      const p = `${x(s.t)},${y(s.d)}`;
+      if (runStart == null) { path += `M${p}`; area += `M${p}`; runStart = x(s.t); }
+      else { path += `L${p}`; area += `L${p}`; }
       prev = s;
     }
     closeRun();
-    el('path', { d: area, fill: 'var(--series-wash)', stroke: 'none' }, g);
-    el('path', { d: path, fill: 'none', stroke: 'var(--series)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, g);
+    el('path', { d: area, fill: 'url(#areaGrad)', stroke: 'none' }, g);
+    el('path', { d: path, fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2.2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, g);
+    if (prev && prev.d != null && now - prev.t < STALE_MS) {
+      el('circle', { cx: x(prev.t), cy: y(prev.d), r: 9, fill: 'var(--accent)', opacity: .18 }, g);
+      el('circle', { cx: x(prev.t), cy: y(prev.d), r: 4, fill: 'var(--accent)', stroke: 'var(--card)', 'stroke-width': 2 }, g);
+    }
 
     const sy = H - PAD.b - STRIP;
+    el('rect', { x: PAD.l, y: sy, width: W - PAD.l - PAD.r, height: STRIP, rx: 5, fill: 'var(--track)' });
     let segStart = null;
     for (let i = 0; i < vis.length; i++) {
       const s = vis[i], n = vis[i + 1];
@@ -443,19 +599,18 @@
       if (end) {
         const endT = n && n.t - s.t <= 4000 ? n.t : s.t + 1000;
         const x1 = Math.max(PAD.l, x(segStart.t)), x2 = Math.min(W - PAD.r, x(endT));
-        if (x2 - x1 > 0.5) el('rect', { x: x1, y: sy, width: Math.max(1, x2 - x1 - 1), height: STRIP, rx: 3, fill: FASE[s.fase].color });
+        if (x2 - x1 > 0.5) el('rect', { x: x1, y: sy, width: Math.max(1, x2 - x1 - 2), height: STRIP, rx: 5, fill: FASE[s.fase].color });
         segStart = null;
       }
     }
 
-    geo = { x, y, t0, now, W, plotB, sy, vis };
-    const cross = el('line', { y1: PAD.t, y2: sy + STRIP, stroke: 'var(--ink-2)', 'stroke-width': 1, visibility: 'hidden', id: 'cross' });
-    const dot = el('circle', { r: 4.5, fill: 'var(--series)', stroke: 'var(--surface)', 'stroke-width': 2, visibility: 'hidden', id: 'cdot' });
-    el('rect', { x: PAD.l, y: 0, width: W - PAD.l - PAD.r, height: H - PAD.b, fill: 'transparent', id: 'hit' });
+    geo = { x, y, t0, now, W, vis };
+    el('line', { y1: PAD.t, y2: sy + STRIP, stroke: 'var(--ink-2)', 'stroke-width': 1, 'stroke-dasharray': '3 3', visibility: 'hidden', id: 'cross' });
+    el('circle', { r: 5, fill: 'var(--accent)', stroke: 'var(--card)', 'stroke-width': 2.5, visibility: 'hidden', id: 'cdot' });
+    el('rect', { x: PAD.l, y: 0, width: W - PAD.l - PAD.r, height: H - PAD.b, fill: 'transparent' });
     if (hoverX != null) showTip(hoverX);
   }
 
-  let hoverX = null;
   function showTip(px) {
     if (!geo || !geo.vis.length) return;
     const t = geo.t0 + (px - PAD.l) / (geo.W - PAD.l - PAD.r) * (geo.now - geo.t0);
@@ -470,12 +625,12 @@
     const f = FASE[best.fase];
     tip.innerHTML = `<b>${fmtTime(best.t)}</b>
       <div class="row"><span>Distância</span><span>${best.d == null ? 'sem eco' : best.d + ' cm'}</span></div>
-      <div class="row"><span>Presença</span><span>${best.presenca ? 'Sim' : 'Não'}</span></div>
-      <div class="row"><span>Fase</span><span class="tag"><i style="background:${f.color}"></i>${f.label}</span></div>`;
+      <div class="row"><span>Presença</span><span>${best.presenca ? 'Detectada' : 'Livre'}</span></div>
+      <div class="row"><span>Fase</span><span><i class="sw" style="background:${f.color}"></i>${f.label}</span></div>`;
     tip.style.display = 'block';
     const tw = tip.offsetWidth;
-    tip.style.left = `${cx + 14 + tw > geo.W ? cx - tw - 14 : cx + 14}px`;
-    tip.style.top = `${PAD.t + 6}px`;
+    tip.style.left = `${cx + 16 + tw > geo.W ? cx - tw - 16 : cx + 16}px`;
+    tip.style.top = `${PAD.t + 4}px`;
   }
   function hideTip() {
     tip.style.display = 'none';
@@ -483,7 +638,7 @@
     if (c) c.setAttribute('visibility', 'hidden');
     if (d) d.setAttribute('visibility', 'hidden');
   }
-  svg.addEventListener('pointermove', e => { const r = svg.getBoundingClientRect(); hoverX = e.clientX - r.left; showTip(hoverX); });
+  svg.addEventListener('pointermove', e => { hoverX = e.clientX - svg.getBoundingClientRect().left; showTip(hoverX); });
   svg.addEventListener('pointerleave', () => { hoverX = null; hideTip(); });
 
   document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
@@ -516,7 +671,7 @@
     if (DEMO) sim.apply(payload);
     else if (client && brokerOk) client.publish(BASE, JSON.stringify(payload));
     else { $('formNote').textContent = 'Sem conexão com o broker.'; return; }
-    log('Configuração enviada pelo dashboard');
+    log('Configuração enviada pelo dashboard', 'var(--accent)');
     $('formNote').textContent = `Enviada às ${fmtTime(Date.now())}.`;
   });
 
@@ -553,15 +708,14 @@
       step();
     }
     function start() {
-      const t = Date.now();
+      const realNow = Date.now, t = realNow();
       for (let i = 240; i > 0; i--) {
-        const fakeNow = t - i * 1000;
-        const realNow = Date.now;
-        Date.now = () => fakeNow;
-        if (i === 240) inicio = fakeNow;
+        const fake = t - i * 1000;
+        Date.now = () => fake;
+        if (i === 240) inicio = fake;
         step();
-        Date.now = realNow;
       }
+      Date.now = realNow;
       setInterval(step, 1000);
     }
     return { start, apply };
@@ -575,9 +729,9 @@
     client.on('connect', () => {
       brokerOk = true; updatePills();
       client.subscribe([T_TELE, T_ONLINE]);
-      log('Dashboard conectado ao broker');
+      log('Dashboard conectado ao broker', 'var(--accent)');
     });
-    client.on('close', () => { if (brokerOk) log('Conexão com o broker perdida'); brokerOk = false; updatePills(); });
+    client.on('close', () => { if (brokerOk) log('Conexão com o broker perdida', 'var(--vermelho)'); brokerOk = false; updatePills(); });
     client.on('message', (topic, buf) => {
       const txt = buf.toString();
       if (topic === T_ONLINE) return onOnline(txt.trim());
