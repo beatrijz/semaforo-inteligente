@@ -32,6 +32,31 @@ Exemplo de mensagem aceita no tópico:
 }
 ```
 
+## Telemetria e dashboard
+
+O ESP32 publica seu estado em `Ifpe/Semaforo/Semaforo1/telemetria` a cada 1 s e sempre que a fase
+ou a presença mudam. No tópico `Ifpe/Semaforo/Semaforo1/online` ele publica `1` ao conectar, e o broker
+publica `0` sozinho (Last Will) se o ESP32 cair.
+
+```json
+{
+  "estado": "VERMELHO", "manutencao": false, "pico": false, "presenca": true,
+  "distanciaCm": 32, "faseDuracaoMs": 12500, "faseRestanteMs": 8100,
+  "config": { "verdePadrao": 25, "vermelhoPadrao": 25, "verdePico": 35, "vermelhoPico": 15,
+              "picoInicio": "07:00", "picoFim": "09:00" },
+  "ciclos": 4, "deteccoes": 2, "rssi": -58, "uptime": 312
+}
+```
+
+O dashboard (`dashboard/index.html`) assina esses tópicos via MQTT sobre WebSocket
+(`wss://broker.hivemq.com:8884/mqtt`) e mostra a fase atual com contagem regressiva, a distância do
+HC-SR04, a presença, os contadores, um gráfico da distância com a faixa de fases e um registro de
+eventos. Ele também envia uma nova configuração para o tópico do semáforo.
+
+- Abra `dashboard/index.html` direto no navegador; não precisa de servidor.
+- `index.html?demo`: modo demonstração com dados simulados, sem ESP32.
+- `index.html?topico=Ifpe/Semaforo/Semaforo2`: monitora outro semáforo.
+
 ## Componentes e pinos
 
 | Componente | Pino do ESP32 | Função |
@@ -49,6 +74,7 @@ Cada LED usa um resistor de 220 Ω em série.
 - `firmware-esp32/sketch.ino`: código principal, comentado com os itens A a F da R5
 - `firmware-esp32/diagram.json`: circuito da simulação no Wokwi
 - `firmware-esp32/libraries.txt`: bibliotecas (PubSubClient e ArduinoJson)
+- `dashboard/index.html`: dashboard de monitoramento em tempo real
 
 ## Simulação
 
